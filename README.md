@@ -1,0 +1,4 @@
+monwrap
+=======
+
+Wrapper around monads
