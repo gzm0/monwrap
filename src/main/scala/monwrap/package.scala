@@ -1,5 +1,5 @@
 package object monwrap {
 
-  def unwrap[T](mw: MW[T]): Option[T] = mw.__mon
+  def unwrap[T,M[V]](mw: MW[T,M]): M[T] = mw.__mon
 
 }

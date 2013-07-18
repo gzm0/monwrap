@@ -5,30 +5,32 @@ import language.dynamics
 
 import scala.reflect.macros.Context
 
-class MW[T](
-    private[monwrap] val __mon: Option[T]
-) extends Dynamic {
-
-  def applyDynamic(n: String)(arg: Any*) = macro MW.appDynImpl[T]
+class MW[T,M[V]](
+  val __mon: M[T]
+) extends AnyVal with Dynamic {
+  def applyDynamic(n: String)(arg: Any*) = macro MW.appDynImpl[T,M]
 }
 
 object MW {
 
-  def appDynImpl[T](c: Context { type PrefixType = MW[T] })
-    (n: c.Expr[String])(arg: c.Expr[Any]*) = {
+  def appDynImpl[T : c.WeakTypeTag, M[V]](c: Context { type PrefixType = MW[T,M] })
+  (n: c.Expr[String])(arg: c.Expr[Any]*) = {
+  
     import c.universe._
+
+    def call(on: Tree)(f: String)(args: c.Expr[Any]*) = {
+      val fT = newTermName(f)
+      val arglist = args.map(_.tree).toList
+      c.Expr[Any](Apply(Select(on, fT), arglist))
+    }
 
     val Literal(Constant(fn: String)) = n.tree
 
-    def call(mon: Tree) = {
-      val arglist = arg.map(_.tree).toList
-      val fnT = newTermName(fn)
-      c.Expr[Any](Apply(Select(mon, fnT), arglist))
-    }
+    val x = reify { v: T => call(Ident(newTermName("v")))(fn)(arg :_*).splice }
 
-    reify {
-      unwrap(c.prefix.splice).map(v => call(Ident(newTermName("v"))).splice)
-    }
+    val mon = reify { unwrap(c.prefix.splice) }
+
+    call(mon.tree)("map")(x)
 
   }
 
