@@ -74,7 +74,9 @@ object MW {
 
     val mon = reify { unwrap(c.prefix.splice) }
 
-    c.Expr[Any](wrap(callE(mon.tree)("map")(x).tree))
+    val rmon = wrap(callE(mon.tree)("map")(x).tree)
+
+    c.Expr[Any](callT(Ident(newTermName("monwrap")))("wrap")(rmon))
 
   }
 
