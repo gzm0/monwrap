@@ -2,6 +2,7 @@ import language.higherKinds
 
 package object monwrap {
 
-  def unwrap[T,M[V]](mw: MW[T,M]): M[T] = mw.__mon
+  def wrap[T,M[_]](m: M[T]): MW[T,M] = new MW(m)
+  def unwrap[T,M[_]](mw: MW[T,M]): M[T] = mw.__mon
 
 }

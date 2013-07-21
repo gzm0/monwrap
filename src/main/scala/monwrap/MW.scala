@@ -12,6 +12,7 @@ class MW[T,M[_]](
   val __mon: M[T]
 ) extends AnyVal with Dynamic {
   def applyDynamic(n: String)(arg: Any*) = macro MW.appDynImpl[T,M]
+  override def toString = s"MW(${__mon.toString})"
 }
 
 object MW {
