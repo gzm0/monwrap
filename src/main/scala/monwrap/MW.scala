@@ -2,6 +2,8 @@ package monwrap
 
 import language.experimental.macros
 import language.dynamics
+import language.postfixOps
+import language.higherKinds
 
 import scala.annotation.tailrec
 import scala.reflect.macros.Context
