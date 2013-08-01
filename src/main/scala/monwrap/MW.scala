@@ -44,33 +44,32 @@ object MW {
     @tailrec
     def procArgs(
       args_in:  List[c.Expr[Any]],
-      args_out: List[Tree],
-      aInd: Int)(wrap: Tree => Tree): (List[Tree], Tree => Tree) = args_in match {
+      args_out: List[Tree])(wrap: Tree => Tree): (List[Tree], Tree => Tree) = args_in match {
       case a :: as => mwType(a.tree.tpe) match {
         case Some(tpe) =>
-          val tn = newTermName("arg" + aInd)
+          val tn = newTermName(c.fresh())
           val mon = reify { unwrap(c.Expr[MW[_,M]](a.tree).splice) }
-          procArgs(as, Ident(tn) :: args_out, aInd + 1){ t =>
+          procArgs(as, Ident(tn) :: args_out){ t =>
             Apply(Select(mon.tree, "flatMap"), 
                   anfun(tn)(TypeTree(tpe))(wrap(t)) :: Nil)
           }
         case None =>
-          procArgs(as, a.tree :: args_out, aInd)(wrap)
+          procArgs(as, a.tree :: args_out)(wrap)
       }
       case Nil => (args_out.reverse, wrap)
     }
 
-    val (al, wrap) = procArgs(arg.toList, Nil, 0)(x => x)
+    val (al, wrap) = procArgs(arg.toList, Nil)(x => x)
 
     val Literal(Constant(fn: String)) = n.tree
     val fnEnc = newTermName(fn).encodedName.toTermName                                       
 
-    val newCall = c.Expr[Any](Apply(Select(Ident("v"), fnEnc), al))
-    val x = reify { v: T => newCall.splice }
+    val vn = newTermName(c.fresh())
+    val innerCall = anfun(vn)(TypeTree(weakTypeOf[T]))(Apply(Select(Ident(vn), fnEnc), al))
 
     val mon = reify { unwrap(c.prefix.splice) }
 
-    val rmon = wrap(Apply(Select(mon.tree, "map"), x.tree :: Nil))
+    val rmon = wrap(Apply(Select(mon.tree, "map"), innerCall :: Nil))
 
     c.Expr[Any](Apply(Select(Ident("monwrap"),"wrap"), rmon :: Nil))
 
