@@ -7,6 +7,7 @@ object Test extends App {
 
   val j = wrap { Some(2) }
 
+  println(w.substring(3))
   println(w.substring(i))
 
   println(i - j)
