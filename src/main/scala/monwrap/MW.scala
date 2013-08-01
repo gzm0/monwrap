@@ -31,31 +31,36 @@ object MW {
     }
  
     @tailrec
-    def procArgs(
-      args_in:  List[c.Expr[Any]],
-      args_out: List[Tree],
-      aInd: Int)(wrap: Tree => Tree): (List[Tree], Tree => Tree) = args_in match {
-      case a :: as => isMWType[M](c)(a.tree.tpe) match {
-        case Some(tpe) =>
-          val tn = newTermName("arg" + aInd)
-          procArgs(as, Ident(tn) :: args_out, aInd + 1){ t =>
-            Apply(SelectMW(a.tree, "flatMap"), lambda(c)(tn -> tpe)(wrap(t)) :: Nil)
-          }
-        case None =>
-          procArgs(as, a.tree :: args_out, aInd)(wrap)
-      }
-      case Nil => (args_out.reverse, wrap)
+    def procArgs(ain:  List[c.Expr[Any]],
+                 aout: List[Tree],
+                 aInd: Int,
+                 wrap: Tree => Tree): (List[Tree], Tree => Tree) = ain match {
+      case a :: as => 
+        val (out, naInd, nwrap) = procArg(a.tree, aInd, wrap)
+        procArgs(as, out :: aout, naInd, nwrap)
+      case Nil => (aout.reverse, wrap)
     }
 
-    val (al, wrap) = procArgs(arg.toList, Nil, 0)(x => x)
+    def procArg(in: Tree, aInd: Int, wrap: Tree => Tree) = ckMWType[M](c)(in.tpe) match {
+      case Some(vTpe) =>
+        val tn = newTermName("arg" + aInd)
+        val nwrap = { t: Tree =>
+          Apply(SelectMW(in, "flatMap"), lambda(c)(tn -> vTpe)(wrap(t)) :: Nil) }
+
+        (Ident(tn), aInd + 1, nwrap)
+      case None =>
+        (in, aInd, wrap)
+    }
+
+    val (al, wrap) = procArgs(arg.toList, Nil, 0, x => x)
 
     val Literal(Constant(fn: String)) = n.tree
     val fnEnc = newTermName(fn).encodedName.toTermName                                       
 
     val newCall = c.Expr[Any](Apply(Select(Ident("v"), fnEnc), al))
-    val x = reify { v: T => newCall.splice }
+    val callLambda = reify { v: T => newCall.splice } tree
 
-    val rmon = wrap(Apply(SelectMW(c.prefix.tree, "map"), x.tree :: Nil))
+    val rmon = wrap(Apply(SelectMW(c.prefix.tree, "map"), callLambda :: Nil))
 
     c.Expr[Any](Apply(Select(Ident("monwrap"),"wrap"), rmon :: Nil))
 
@@ -65,7 +70,7 @@ object MW {
    * check if the given type is of type MW[T,M] for some T and return
    * Some(typeOf[T]) or None otherwise
    */
-  def isMWType[M[_]](c: Context)(t: c.Type)(implicit tt: c.WeakTypeTag[M[_]]) = {
+  def ckMWType[M[_]](c: Context)(t: c.Type)(implicit tt: c.WeakTypeTag[M[_]]) = {
     import c.universe._
 
     for {
