@@ -17,28 +17,17 @@ class MW[T,M[_]](
 
 object MW {
 
-  def appDynImpl[T : c.WeakTypeTag, M[_]](c: Context { type PrefixType = MW[T,M] })
-                                         (n: c.Expr[String])
-                                         (arg: c.Expr[Any]*) 
-                                         (implicit monTT: c.WeakTypeTag[M[_]]) = {
+  def appDynImpl[T : c.WeakTypeTag, M[_]](c: Context)(n: c.Expr[String])(arg: c.Expr[Any]*) 
+  (implicit monTT: c.WeakTypeTag[M[_]]) = {
   
     import c.universe._
 
-    def anfun(tns: TermName*)(tpes: TypeTree*)(b: Tree) = {
-      import Flag._
-      val mods = Modifiers(PARAM)
-      val defs = for ((tn,tpe) <- tns zip tpes) yield ValDef(mods, tn, tpe, EmptyTree)
-      Function(defs.toList, b)
-    }
-
-    def mwType(t: Type) = {
-      val sym = weakTypeOf[MW[_,M]].typeSymbol
-      val mSym = weakTypeOf[M[_]].typeSymbol
-      t match {
-        // TODO check for correct package!
-        case TypeRef(_, `sym`, List(t,TypeRef(_,`mSym`,_))) => Some(t)
-        case _ => None
-      }
+    /**
+     * create a Select-like syntax tree for a MW. Calls unwrap first
+     */
+    def SelectMW(mw: Tree, fun: TermName) = {
+      val mon = Apply(Select(Ident("monwrap"), "unwrap"), mw :: Nil)
+      Select(mon, fun)
     }
  
     @tailrec
@@ -46,13 +35,11 @@ object MW {
       args_in:  List[c.Expr[Any]],
       args_out: List[Tree],
       aInd: Int)(wrap: Tree => Tree): (List[Tree], Tree => Tree) = args_in match {
-      case a :: as => mwType(a.tree.tpe) match {
+      case a :: as => isMWType[M](c)(a.tree.tpe) match {
         case Some(tpe) =>
           val tn = newTermName("arg" + aInd)
-          val mon = reify { unwrap(c.Expr[MW[_,M]](a.tree).splice) }
           procArgs(as, Ident(tn) :: args_out, aInd + 1){ t =>
-            Apply(Select(mon.tree, "flatMap"), 
-                  anfun(tn)(TypeTree(tpe))(wrap(t)) :: Nil)
+            Apply(SelectMW(a.tree, "flatMap"), lambda(c)(tn -> tpe)(wrap(t)) :: Nil)
           }
         case None =>
           procArgs(as, a.tree :: args_out, aInd)(wrap)
@@ -68,12 +55,56 @@ object MW {
     val newCall = c.Expr[Any](Apply(Select(Ident("v"), fnEnc), al))
     val x = reify { v: T => newCall.splice }
 
-    val mon = reify { unwrap(c.prefix.splice) }
-
-    val rmon = wrap(Apply(Select(mon.tree, "map"), x.tree :: Nil))
+    val rmon = wrap(Apply(SelectMW(c.prefix.tree, "map"), x.tree :: Nil))
 
     c.Expr[Any](Apply(Select(Ident("monwrap"),"wrap"), rmon :: Nil))
 
+  }
+
+  /**
+   * check if the given type is of type MW[T,M] for some T and return
+   * Some(typeOf[T]) or None otherwise
+   */
+  def isMWType[M[_]](c: Context)(t: c.Type)(implicit tt: c.WeakTypeTag[M[_]]) = {
+    import c.universe._
+
+    for {
+      // Check if t is a MW
+      t <- Some(t) if t <:< buildMWType[M](c)
+      // Extract type of value
+      TypeRef(_,  _, List(res,_)) = t
+    } yield res
+  }
+
+  /**
+   * build typeOf[MW[_,M]] given WeakTypeTag[M[_]]
+   * thanks to Eugene Burmanko
+   * http://stackoverflow.com/a/17791973/1149944
+   */
+  def buildMWType[M[_]](c: Context)(implicit tt: c.WeakTypeTag[M[_]]) = {
+    import c.universe._
+
+    val TypeRef(_, sym, _) = tt.tpe
+
+    val templ = typeOf[MW[_,Hack]]
+    templ.substituteSymbols(List(typeOf[Hack[_]].typeSymbol), List(sym))
+  }
+
+  /**
+   * construct a syntax tree for an anomymous function
+   * in context c with given parameters and body
+   */
+  def lambda(c: Context)(params: (c.TermName, c.Type)*)(b: c.Tree) = {
+    import c.universe._
+    import Flag._
+
+    val mods = Modifiers(PARAM)
+
+    val defs =
+      for ((tn,tpe) <- params)
+        yield ValDef(mods, tn, TypeTree(tpe), EmptyTree)
+
+    Function(defs.toList, b)
   }
 
 }
