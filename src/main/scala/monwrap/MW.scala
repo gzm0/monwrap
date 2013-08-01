@@ -24,13 +24,6 @@ object MW {
   
     import c.universe._
 
-    def callT(on: Tree)(f: String)(args: Tree*): Tree = {
-      val fT = newTermName(f)
-      Apply(Select(on, fT), args.toList)
-    }                                       
-    def callE(on: Tree)(f: String)(args: c.Expr[Any]*): c.Expr[Any] =
-      c.Expr[Any](callT(on)(f)(args.map(_.tree) :_*))
-
     def anfun(tns: TermName*)(tpes: TypeTree*)(b: Tree) = {
       import Flag._
       val mods = Modifiers(PARAM)
@@ -56,9 +49,10 @@ object MW {
       case a :: as => mwType(a.tree.tpe) match {
         case Some(tpe) =>
           val tn = newTermName("arg" + aInd)
-          val mon = callT(Ident(newTermName("monwrap")))("unwrap")(a.tree)
+          val mon = reify { unwrap(c.Expr[MW[_,M]](a.tree).splice) }
           procArgs(as, Ident(tn) :: args_out, aInd + 1){ t =>
-            callT(mon)("flatMap")(anfun(tn)(TypeTree(tpe))(wrap(t)))
+            Apply(Select(mon.tree, "flatMap"), 
+                  anfun(tn)(TypeTree(tpe))(wrap(t)) :: Nil)
           }
         case None =>
           procArgs(as, a.tree :: args_out, aInd)(wrap)
@@ -69,14 +63,16 @@ object MW {
     val (al, wrap) = procArgs(arg.toList, Nil, 0)(x => x)
 
     val Literal(Constant(fn: String)) = n.tree
+    val fnEnc = newTermName(fn).encodedName.toTermName                                       
 
-    val x = reify { v: T => c.Expr[Any](callT(Ident(newTermName("v")))(fn)(al :_*)).splice }
+    val newCall = c.Expr[Any](Apply(Select(Ident("v"), fnEnc), al))
+    val x = reify { v: T => newCall.splice }
 
     val mon = reify { unwrap(c.prefix.splice) }
 
-    val rmon = wrap(callE(mon.tree)("map")(x).tree)
+    val rmon = wrap(Apply(Select(mon.tree, "map"), x.tree :: Nil))
 
-    c.Expr[Any](callT(Ident(newTermName("monwrap")))("wrap")(rmon))
+    c.Expr[Any](Apply(Select(Ident("monwrap"),"wrap"), rmon :: Nil))
 
   }
 
